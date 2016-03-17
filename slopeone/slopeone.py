@@ -19,10 +19,7 @@ import pymongo
 # Constants #
 #############
 
-#These should only be used for testing
-DB_URL  = 'localhost'
-DB_PORT = 27017
-DB_NAME = 'slopeone'
+# - None Defined - #
 
 #####################
 # Exception Classes #
@@ -34,7 +31,7 @@ DB_NAME = 'slopeone'
 # Interface Functions #
 #######################
 
-def initialize(db_url=DB_URL, db_port=DB_PORT, db_name=DB_NAME):
+def initialize(db_url, db_port, db_name):
     '''
     Re-initializes the model from scratch, wiping the
     current database.
@@ -58,7 +55,7 @@ def initialize(db_url=DB_URL, db_port=DB_PORT, db_name=DB_NAME):
     else:
         return {'status':'initialized'}
 
-def update_from_sumo(sumo_views, db_url=DB_URL, db_port=DB_PORT, db_name=DB_NAME):
+def update_from_sumo(sumo_views, db_url, db_port, db_name):
     '''
     Updates data used by the model using a SlopeOneData
     object.
@@ -72,15 +69,13 @@ def update_from_sumo(sumo_views, db_url=DB_URL, db_port=DB_PORT, db_name=DB_NAME
         db_port
     )
 
-    #users = {}
-
-    db = client[DB_NAME]
+    db = client[db_name]
 
     #Update the listing_insterest collection
     print('Updating listing interest collection')
     collection = db['listing_interest']
-    views_updated, views_inserted = 0, 0
-    inserts = []
+    views_updated, views_inserted, views_skipped, views_removed = 0, 0, 0, 0
+    inserts = {}
 
     for view in sumo_views:
 
@@ -92,75 +87,76 @@ def update_from_sumo(sumo_views, db_url=DB_URL, db_port=DB_PORT, db_name=DB_NAME
 
         #Update existing listing/user combo
         if existing:
-            print('updating listing: {}, user: {}'.format(view['listingid'], view['username']))
-            collection.update_one(
-                {
-                    'listing_id':int(view['listingid']),
-                    'user_id':hash(view['username'])
-                },
-                {
-                    '$inc':{'views':int(view['_count'])},
-                    '$currentDate':{'lastModified':True}
-                }
+            #Only update if view has not already been processed
+            this_time = datetime.datetime.strptime(
+                view['timestamp'],
+                '%m/%d/%Y %H:%M:%S:%f'
             )
-            views_updated += 1
+            last_updated = datetime.datetime.strptime(
+                existing['updated'],
+                '%m/%d/%Y %H:%M:%S:%f'
+            )
+            if not(this_time <= last_updated):
+                collection.update_one(
+                    {
+                        'listing_id':int(view['listingid']),
+                        'user_id':hash(view['username'])
+                    },
+                    {
+                        '$inc':{'views':int(view['_count'])},
+                        '$set':{'updated':view['timestamp']},
+                        '$currentDate':{'lastModified':True}
+                    }
+                )
+                views_updated += 1
+            else:
+                views_skipped += 1
+                pass
 
         #Create new listing/user combo
         else:
-            inserts.append({
-                'listing_id':int(view['listingid']),
-                'user_id':hash(view['username']),
-                'views':int(view['_count']),
-                'interest':0.0,
-                'updated':datetime.datetime.utcnow()
-            })
+            try:
+                existing = ( view['listingid'], hash(view['username']) )
+                this_time = datetime.datetime.strptime(
+                    view['timestamp'],
+                    '%m/%d/%Y %H:%M:%S:%f'
+                )
+                last_updated = datetime.datetime.strptime(
+                    inserts[existing]['updated'],
+                    '%m/%d/%Y %H:%M:%S:%f'
+                )
+                if this_time > last_updated:
+                    inserts[existing]['views'] += int(view['_count'])
+                    inserts[existing]['updated'] = view['timestamp']
+                else:
+                    inserts[existing]['views'] += int(view['_count'])
+            except KeyError:
+                inserts[(view['listingid'], hash(view['username']))] = {
+                    'listing_id':int(view['listingid']),
+                    'user_id':hash(view['username']),
+                    'views':int(view['_count']),
+                    'interest':0.0,
+                    'updated':view['timestamp']
+                }
             views_inserted += 1
 
     #Bulk insert using listing/user combos accumulated above
-    print("inserting {} listing/user records into db".format(len(inserts)))
-    collection.insert_many(inserts)
+    if len(inserts) > 0:
+        print("inserting {} listing/user records into db".format(len(inserts)))
+        collection.insert_many(inserts.values())
+    else:
+        print("no listings to insert!")
 
-        #Keep track of users for updating users collection
-        #try:
-        #    users[hash(view['username'])] += int(view['_count'])
-        #except KeyError:
-        #    users[hash(view['username'])] = int(view['_count'])
-
-    #Update the users collection
-    #print('Updating users collection')
-    #collection = db['users']
-    #users_updated, users_inserted = 0, 0
-    #for user_id,views in users.items():
-    #    existing = collection.find_one({
-    #        'user_id':user_id
-    #    })
-    #    if existing:
-    #        print('updating user: {}'.format(user_id))
-    #        collection.update_one(
-    #            { 'user_id':user_id },
-    #            {
-    #                '$currentDate':{'lastModified':True},
-    #                '$inc':{'listing_views':views}
-    #            }
-    #        )
-    #        users_updated += 1
-    #    else:
-    #        print('inserting user: {}'.format(user_id))
-    #        collection.insert_one({
-    #            'user_id':user_id,
-    #            'listing_views':views,
-    #            'updated':datetime.datetime.utcnow()
-    #        })
-    #        users_inserted += 1
+    #Bulk remove any listing/user combos older than a month
 
     return {
         'views_updated':views_updated,
         'views_inserted':views_inserted,
-    #    'users_updated':users_updated,
-    #    'users_inserted':users_inserted
+        'views_removed':views_removed,
+        'views_skipped':views_skipped
     }
 
-def update_interest_scores(threshold=0.5, db_url=DB_URL, db_port=DB_PORT, db_name=DB_NAME):
+def update_interest_scores(db_url, db_port, db_name, threshold=0.5):
     '''
     Calculates a set of interest scores for each user/listing
     combination in the database, and stores those above a
@@ -206,7 +202,7 @@ def update_interest_scores(threshold=0.5, db_url=DB_URL, db_port=DB_PORT, db_nam
 
     #Add predictions to database
     print("updating prediction database")
-    db = client[DB_NAME]
+    db = client[db_name]
     collection = db['predictions']
     predictions_inserted, predictions_updated = 0, 0
     inserts = []
@@ -255,7 +251,7 @@ def update_interest_scores(threshold=0.5, db_url=DB_URL, db_port=DB_PORT, db_nam
         'predictions_updated':predictions_updated
     }
 
-def score_from_user(user_id, db_url=DB_URL, db_port=DB_PORT, db_name=DB_NAME):
+def score_from_user(user_id, db_url, db_port, db_name):
     '''
     Input:  Int. ID of user.
     Output: JSON compliant dict. Indicates predictions for user.

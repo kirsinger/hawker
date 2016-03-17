@@ -51,16 +51,30 @@ class InterfaceTest(unittest.TestCase):
 
     def test_update_from_sumo(self):
         slopeone.initialize(DB_URL, DB_PORT, DB_NAME)
-        with open('./test_data/sumo_data_1_days.json') as data:
+        with open('./test_data/sumo_data_1_days_updated.json') as data:
             sumo_data = json.load(data)
-            status = slopeone.update_from_sumo(sumo_data)
+
+            #Insert fresh data
+            status = slopeone.update_from_sumo(sumo_data, DB_URL, DB_PORT, DB_NAME)
             self.assertEqual(
                 status,
                 {
-                    'users_inserted': 333,
                     'views_updated': 0,
-                    'users_updated': 0,
-                    'views_inserted': 766
+                    'views_inserted': 538,
+                    'views_removed':0,
+                    'views_skipped':0
+                }
+            )
+
+            #Insert data that's already been inserted
+            status = slopeone.update_from_sumo(sumo_data, DB_URL, DB_PORT, DB_NAME)
+            self.assertEqual(
+                status,
+                {
+                    'views_updated': 0,
+                    'views_inserted': 0,
+                    'views_removed':0,
+                    'views_skipped':538
                 }
             )
 
@@ -70,15 +84,15 @@ class InterfaceTest(unittest.TestCase):
 
     def test_score_from_user(self):
         slopeone.initialize(DB_URL, DB_PORT, DB_NAME)
-        with open('./test_data/sumo_data_1_days.json') as data:
+        with open('./test_data/sumo_data_1_days_updated.json') as data:
             sumo_data = json.load(data)
-            slopeone.update_from_sumo(sumo_data)
-        status = slopeone.update_interest_scores()
+            slopeone.update_from_sumo(sumo_data, DB_URL, DB_PORT, DB_NAME)
+        status = slopeone.update_interest_scores(DB_URL, DB_PORT, DB_NAME)
         client = pymongo.MongoClient(
             DB_URL, DB_PORT
         )
         user = client.slopeone.predictions.find()[10]['user_id']
-        preds = slopeone.score_from_user(user)
+        preds = slopeone.score_from_user(user, DB_URL, DB_PORT, DB_NAME)
         print(preds)
 
 class SlopeOneTest(unittest.TestCase):
