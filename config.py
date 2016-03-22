@@ -18,7 +18,7 @@ SJ_DB_DRIVER = "SQL Server Native Client 11.0"
 SUMO_ACCESS_ID   = "suxr59TveIwE2B"
 SUMO_ACCESS_KEY  = "CbBcTbcv1SA5yobiTmXkA4MKpXoe3mS6PZRKcdVf75S40u7nrVFYbuVpB00ZOqTd"
 SUMO_QUERY       = """_source=enterprise_microsoft_logs__PROD__www_spotjobs_com | parse "*" as jsonobject | json field = jsonobject "EventId", "ExtendedProperties.UserAgent", "ExtendedProperties.ListingID", "ExtendedProperties.UserName" as eventid, useragent, listingid, username | formatDate(_messageTime, "MM/dd/yyyy HH:mm:ss:SSS") as timestamp | where !(useragent matches "*bot*") and !(useragent matches "*catalinbaroianu@yahoo.com*") and !(useragent matches "*crawler*") | where (eventid = 21) or (eventid = 22) | where !(username = "") | count by username, listingid, timestamp"""
-SUMO_QUERY_RANGE = 5 # days
+SUMO_QUERY_RANGE = 1 # days
 
 #AWS API Details
 AWS_REGION = "us-west-2"
