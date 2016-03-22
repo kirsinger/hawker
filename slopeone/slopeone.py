@@ -147,7 +147,7 @@ def update_from_sumo(sumo_views, db_url, db_port, db_name):
     else:
         print("no listings to insert!")
 
-    #Bulk remove any listing/user combos older than a month
+    #TODO: Bulk remove any listing/user combos older than a month
 
     return {
         'views_updated':views_updated,
@@ -204,7 +204,7 @@ def update_interest_scores(db_url, db_port, db_name, threshold=0.5):
     print("updating prediction database")
     db = client[db_name]
     collection = db['predictions']
-    predictions_inserted, predictions_updated = 0, 0
+    predictions_inserted, predictions_updated, predictions_skipped = 0, 0, 0
     inserts = []
     for user,prefs in predictions.items():
         if prefs:
@@ -214,23 +214,27 @@ def update_interest_scores(db_url, db_port, db_name, threshold=0.5):
                     'listing_id':listing
                 })
                 if existing:
-                    print("updating predictions for user: {}, listing: {}".format(user, listing))
-                    try:
-                        collection.update_one(
-                            {
-                                'user_id':user,
-                                'listing_id':listing
-                            },
-                            {
-                                '$currentDate':{'lastModified':True},
-                                '$set':{'score':score}
+                    # Only update prediction if the score has changed
+                    if existing['score'] != score:
+                        try:
+                            collection.update_one(
+                                {
+                                    'user_id':user,
+                                    'listing_id':listing
+                                },
+                                {
+                                    '$currentDate':{'lastModified':True},
+                                    '$set':{'score':score}
+                                }
+                            )
+                            predictions_updated += 1
+                        except Exception:
+                            return {
+                                'error':'failure to insert record {}, {}'.format(user, listing)
                             }
-                        )
-                        predictions_updated += 1
-                    except Exception:
-                        return {
-                            'error':'failure to insert record {}, {}'.format(user, listing)
-                        }
+                    else:
+                        predictions_skipped += 1
+                        continue
                 else:
                     inserts.append({
                         'user_id':user,
@@ -240,15 +244,19 @@ def update_interest_scores(db_url, db_port, db_name, threshold=0.5):
                     })
                     predictions_inserted += 1
     try:
-        collection.insert_many(inserts)
-        print("inserted {} new predictions".format(len(inserts)))
+        if len(inserts) > 0:
+            collection.insert_many(inserts)
+            print("inserted {} new predictions".format(len(inserts)))
+        else:
+            print("no new predictions to insert")
     except Exception:
         return {
             'error':'failure to insert predictions'
         }
     return {
         'predictions_inserted':predictions_inserted,
-        'predictions_updated':predictions_updated
+        'predictions_updated':predictions_updated,
+        'predictions_skipped':predictions_skipped
     }
 
 def score_from_user(user_id, db_url, db_port, db_name):

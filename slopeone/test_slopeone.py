@@ -50,37 +50,102 @@ class InterfaceTest(unittest.TestCase):
         self.assertFalse(DB_NAME in client.database_names())
 
     def test_update_from_sumo(self):
+        #Ensure we're starting with a clean database
         slopeone.initialize(DB_URL, DB_PORT, DB_NAME)
+
+        #Insert the small data set
         with open('./test_data/sumo_data_1_days_updated.json') as data:
             sumo_data = json.load(data)
-
-            #Insert fresh data
             status = slopeone.update_from_sumo(sumo_data, DB_URL, DB_PORT, DB_NAME)
-            self.assertEqual(
-                status,
-                {
-                    'views_updated': 0,
-                    'views_inserted': 538,
-                    'views_removed':0,
-                    'views_skipped':0
-                }
-            )
 
-            #Insert data that's already been inserted
+        #Check the numbers
+        self.assertEqual(
+            status,
+            {
+                'views_updated': 0,
+                'views_inserted': 538,
+                'views_removed':0,
+                'views_skipped':0
+            }
+        )
+
+        #Insert the small data set again, ensure that nothing has changed
+        status = slopeone.update_from_sumo(sumo_data, DB_URL, DB_PORT, DB_NAME)
+        self.assertEqual(
+            status,
+            {
+                'views_updated': 0,
+                'views_inserted': 0,
+                'views_removed':0,
+                'views_skipped':538
+            }
+        )
+
+        #Insert the larger test data set
+        with open('./test_data/sumo_data_5_days.json') as data:
+            sumo_data = json.load(data)
             status = slopeone.update_from_sumo(sumo_data, DB_URL, DB_PORT, DB_NAME)
-            self.assertEqual(
-                status,
-                {
-                    'views_updated': 0,
-                    'views_inserted': 0,
-                    'views_removed':0,
-                    'views_skipped':538
-                }
-            )
+
+        #Check the numbers
+        self.assertEqual(
+            status,
+            {
+                'views_updated': 28,
+                'views_skipped': 431,
+                'views_removed': 0,
+                'views_inserted': 5455
+            }
+        )
 
     def test_update_interest_scores(self):
-        #slopeone.update_interest_scores()
-        return None
+        #Ensure we're starting with a clean database
+        slopeone.initialize(DB_URL, DB_PORT, DB_NAME)
+
+        #Insert the test data set
+        with open('./test_data/sumo_data_1_days_updated.json') as data:
+            sumo_data = json.load(data)
+            slopeone.update_from_sumo(sumo_data, DB_URL, DB_PORT, DB_NAME)
+
+        #Update the interest scores
+        status = slopeone.update_interest_scores(DB_URL, DB_PORT, DB_NAME)
+        self.assertEqual(
+            status,
+            {
+                'predictions_inserted':1207,
+                'predictions_updated':0,
+                'predictions_skipped':0
+            }
+        )
+
+        #Update the interest scores again with the same data, ensure nothing is updated
+        status = slopeone.update_interest_scores(DB_URL, DB_PORT, DB_NAME)
+        self.assertEqual(
+            status,
+            {
+                'predictions_inserted':0,
+                'predictions_updated':0,
+                'predictions_skipped':1207
+            }
+        )
+
+        #Insert the larger test data set
+        with open('./test_data/sumo_data_5_days.json') as data:
+            sumo_data = json.load(data)
+            slopeone.update_from_sumo(sumo_data, DB_URL, DB_PORT, DB_NAME)
+
+        status = slopeone.update_interest_scores(DB_URL, DB_PORT, DB_NAME)
+        self.assertEqual(
+            status,
+            {
+                'predictions_inserted': 121927,
+                'predictions_skipped': 514,
+                'predictions_updated': 628
+            }
+        )
+
+
+        #Clean up
+        slopeone.initialize(DB_URL, DB_PORT, DB_NAME)
 
     def test_score_from_user(self):
         slopeone.initialize(DB_URL, DB_PORT, DB_NAME)
